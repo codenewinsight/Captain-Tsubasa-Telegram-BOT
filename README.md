@@ -1,7 +1,7 @@
 ### Captain Tsubasa Auto BOT SCRIPT
 
 
-**Link Captain Tsubasa:** Click (https://t.me/TsubasaRivalsBot/start?startapp=inviter_id-1416732111)
+**Link Captain Tsubasa:** [Click Here](https://t.me/TsubasaRivalsBot/start?startapp=inviter_id-1416732111)
 
 ✔️ Auto tap  
 ✔️ Auto tasks  
@@ -50,4 +50,4 @@ Run the tool with the command:
 `node tsubasa.js` or `node tsubasa-proxy.js`
 
 
-Join my Telegram: LINK (https://t.me/scriptsharing)
+Join my Telegram: [LINK HERE](https://t.me/scriptsharing)
