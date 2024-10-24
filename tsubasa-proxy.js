@@ -94,7 +94,7 @@ class Tsubasa {
     }
 
     async callStartAPI(initData, axiosInstance) {
-        const startUrl = "https://app.ton.tsubasa-rivals.com/api/start";
+        const startUrl = "https://api.app.ton.tsubasa-rivals.com/api/start";
         const startPayload = { lang_code: "en", initData: initData };
         
         try {
@@ -128,7 +128,7 @@ class Tsubasa {
     }
 
     async callTapAPI(initData, tapCount, axiosInstance) {
-        const tapUrl = "https://app.ton.tsubasa-rivals.com/api/tap";
+        const tapUrl = "https://api.app.ton.tsubasa-rivals.com/api/tap";
         const tapPayload = { tapCount: tapCount, initData: initData };
         
         try {
@@ -145,7 +145,7 @@ class Tsubasa {
     }
 
     async callDailyRewardAPI(initData, axiosInstance) {
-        const dailyRewardUrl = "https://app.ton.tsubasa-rivals.com/api/daily_reward/claim";
+        const dailyRewardUrl = "https://api.app.ton.tsubasa-rivals.com/api/daily_reward/claim";
         const dailyRewardPayload = { initData: initData };
         
         try {
@@ -164,7 +164,7 @@ class Tsubasa {
     }
 
     async executeTask(initData, taskId, axiosInstance) {
-        const executeUrl = "https://app.ton.tsubasa-rivals.com/api/task/execute";
+        const executeUrl = "https://api.app.ton.tsubasa-rivals.com/api/task/execute";
         const executePayload = { task_id: taskId, initData: initData };
         
         try {
@@ -177,7 +177,7 @@ class Tsubasa {
     }
 
     async checkTaskAchievement(initData, taskId, axiosInstance) {
-        const achievementUrl = "https://app.ton.tsubasa-rivals.com/api/task/achievement";
+        const achievementUrl = "https://api.app.ton.tsubasa-rivals.com/api/task/achievement";
         const achievementPayload = { task_id: taskId, initData: initData };
         
         try {
@@ -198,7 +198,7 @@ class Tsubasa {
     }
 
     async getCardInfo(initData, axiosInstance) {
-        const startUrl = "https://app.ton.tsubasa-rivals.com/api/start";
+        const startUrl = "https://api.app.ton.tsubasa-rivals.com/api/start";
         const startPayload = { lang_code: "en", initData: initData };
         
         try {
@@ -253,7 +253,7 @@ class Tsubasa {
                 }
     
                 if (card.unlocked && updatedTotalCoins >= card.cost && card.cost <= this.config.maxUpgradeCost) {
-                    const levelUpUrl = "https://app.ton.tsubasa-rivals.com/api/card/levelup";
+                    const levelUpUrl = "https://api.app.ton.tsubasa-rivals.com/api/card/levelup";
                     const levelUpPayload = {
                         category_id: card.categoryId,
                         card_id: card.cardId,
