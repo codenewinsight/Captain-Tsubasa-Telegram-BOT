@@ -7,7 +7,31 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 
 class Tsubasa {
     constructor() {
-        this.headers = {
+        this.data = this.loadData();
+        this.headers = this.initHeaders();
+        this.config = this.loadConfig();
+        this.proxies = this.loadProxies();
+    }
+
+    loadData() {
+        const dataFile = path.join(__dirname, 'data.txt');
+        return fs.readFileSync(dataFile, 'utf8')
+            .replace(/\r/g, '')
+            .split('\n')
+            .filter(Boolean);
+    }
+
+    loadProxies() {
+        const proxyFile = path.join(__dirname, 'proxy.txt');
+        return fs.readFileSync(proxyFile, 'utf8')
+            .replace(/\r/g, '')
+            .split('\n')
+            .filter(Boolean);
+    }
+
+    initHeaders() {
+        const firstUserId = JSON.parse(decodeURIComponent(this.data[0].split('user=')[1].split('&')[0])).id;
+        return {
             "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip, deflate, br",
             "Accept-Language": "vi-VN,vi;q=0.9,fr-FR;q=0.8,fr;q=0.7,en-US;q=0.6,en;q=0.5",
@@ -20,10 +44,47 @@ class Tsubasa {
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+            "X-Player-Id": firstUserId.toString(),
+            "X-Masterhash": "fcd309c672b6ede14f2416cca64caa8ceae4040470f67e83a6964aeb68594bbc"
         };
-        this.config = this.loadConfig();
-        this.proxies = this.loadProxies();
+    }
+
+    loadConfig() {
+        const configPath = path.join(__dirname, 'config.json');
+        try {
+            const configData = fs.readFileSync(configPath, 'utf8');
+            const config = JSON.parse(configData);
+            config.enableTapUpgrades = config.enableTapUpgrades !== undefined ? config.enableTapUpgrades : true;
+            config.enableEnergyUpgrades = config.enableEnergyUpgrades !== undefined ? config.enableEnergyUpgrades : true;
+            config.maxTapUpgradeLevel = config.maxTapUpgradeLevel || 5;
+            config.maxEnergyUpgradeLevel = config.maxEnergyUpgradeLevel || 5;
+            return config;
+        } catch (error) {
+            console.error("Read config.json failed:", error.message);
+            return {
+                enableCardUpgrades: true,
+                enableTapUpgrades: true,
+                enableEnergyUpgrades: true,
+                maxUpgradeCost: 1000000,
+                maxTapUpgradeLevel: 5,
+                maxEnergyUpgradeLevel: 5
+            };
+        }
+    }
+
+    async checkProxyIP(proxy) {
+        try {
+            const proxyAgent = new HttpsProxyAgent(proxy);
+            const response = await axios.get('https://api.ipify.org?format=json', { httpsAgent: proxyAgent });
+            if (response.status === 200) {
+                return response.data.ip;
+            } else {
+                throw new Error(`Check IP failed. Status code: ${response.status}`);
+            }
+        } catch (error) {
+            throw new Error(`Check IP Proxy failed: ${error.message}`);
+        }
     }
 
     log(msg, type = 'info') {
@@ -46,48 +107,10 @@ class Tsubasa {
         }
     }
 
-    loadConfig() {
-        const configPath = path.join(__dirname, 'config.json');
-        try {
-            const configData = fs.readFileSync(configPath, 'utf8');
-            return JSON.parse(configData);
-        } catch (error) {
-            console.error("Can't read file Config:", error.message);
-            return {
-                enableCardUpgrades: true,
-                maxUpgradeCost: 1000000,
-            };
-        }
-    }
-
-    loadProxies() {
-        const proxyPath = path.join(__dirname, 'proxy.txt');
-        try {
-            return fs.readFileSync(proxyPath, 'utf8').split('\n').filter(Boolean);
-        } catch (error) {
-            console.error("Can't read proxy:", error.message);
-            return [];
-        }
-    }
-
-    async checkProxyIP(proxy) {
-        try {
-            const proxyAgent = new HttpsProxyAgent(proxy);
-            const response = await axios.get('https://api.ipify.org?format=json', { httpsAgent: proxyAgent });
-            if (response.status === 200) {
-                return response.data.ip;
-            } else {
-                throw new Error(`Can't check Proxy's IP. Status code: ${response.status}`);
-            }
-        } catch (error) {
-            throw new Error(`Proxy's IP check error: ${error.message}`);
-        }
-    }
-
     async countdown(seconds) {
         for (let i = seconds; i >= 0; i--) {
             readline.cursorTo(process.stdout, 0);
-            process.stdout.write(`===== Wait ${i}s to continue =====`);
+            process.stdout.write(`===== Wait ${i} Second to continue =====`);
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
         console.log('');
@@ -100,7 +123,7 @@ class Tsubasa {
         try {
             const startResponse = await axiosInstance.post(startUrl, startPayload);
             if (startResponse.status === 200 && startResponse.data && startResponse.data.game_data) {
-                const { total_coins, energy, max_energy, coins_per_tap, profit_per_second } = startResponse.data.game_data.user || {};
+                const { total_coins, energy, max_energy, multi_tap_count, profit_per_second } = startResponse.data.game_data.user || {};
                 const masterHash = startResponse.data.master_hash;
                 if (masterHash) {
                     this.headers['X-Masterhash'] = masterHash;
@@ -114,33 +137,16 @@ class Tsubasa {
                     total_coins, 
                     energy, 
                     max_energy, 
-                    coins_per_tap, 
+                    multi_tap_count, 
                     profit_per_second, 
                     tasks,
                     success: true 
                 };
             } else {
-                return { success: false, error: `Failed call api start` };
+                return { success: false, error: `Error call api start` };
             }
         } catch (error) {
-            return { success: false, error: `Failed call api start: ${error.message}` };
-        }
-    }
-
-    async callTapAPI(initData, tapCount, axiosInstance) {
-        const tapUrl = "https://api.app.ton.tsubasa-rivals.com/api/tap";
-        const tapPayload = { tapCount: tapCount, initData: initData };
-        
-        try {
-            const tapResponse = await axiosInstance.post(tapUrl, tapPayload);
-            if (tapResponse.status === 200) {
-                const { total_coins, energy, max_energy, coins_per_tap, profit_per_second } = tapResponse.data.game_data.user;
-                return { total_coins, energy, max_energy, coins_per_tap, profit_per_second, success: true };
-            } else {
-                return { success: false, error: `Failed tap: ${tapResponse.status}` };
-            }
-        } catch (error) {
-            return { success: false, error: `Failed tap: ${error.message}` };
+            return { success: false, error: `Error call api start: ${error.message}` };
         }
     }
 
@@ -151,15 +157,15 @@ class Tsubasa {
         try {
             const dailyRewardResponse = await axiosInstance.post(dailyRewardUrl, dailyRewardPayload);
             if (dailyRewardResponse.status === 200) {
-                return { success: true, message: "Daily check-in Sucess" };
+                return { success: true, message: "Daily check-in Success" };
             } else {
-                return { success: false, message: "Daily check-in has been claimed" };
+                return { success: false, message: "Daily Check-in completed before" };
             }
         } catch (error) {
             if (error.response && error.response.status === 400) {
-                return { success: false, message: "Daily check-in has been claimed" };
+                return { success: false, message: "Daily Check-in completed before" };
             }
-            return { success: false, message: `Daily check-in failed: ${error.message}` };
+            return { success: false, message: `Daily check-in error: ${error.message}` };
         }
     }
 
@@ -171,7 +177,7 @@ class Tsubasa {
             const executeResponse = await axiosInstance.post(executeUrl, executePayload);
             return executeResponse.status === 200;
         } catch (error) {
-            this.log(`Task claim failed ${taskId}: ${error.message}`);
+            this.log(`Perform task error ${taskId}: ${error.message}`);
             return false;
         }
     }
@@ -192,7 +198,7 @@ class Tsubasa {
             }
             return { success: false };
         } catch (error) {
-            this.log(`Task failed ${taskId}: ${error.message}`);
+            this.log(`Error ${taskId}: ${error.message}`);
             return { success: false };
         }
     }
@@ -218,37 +224,45 @@ class Tsubasa {
                 });
                 return cardInfo;
             } else {
-                console.log("Card infor not found!");
+                console.log("Get Card infor Failed!");
                 return null;
             }
         } catch (error) {
-            console.log(`Get card infor error: ${error.message}`);
+            console.log(`Get Card infor Failed: ${error.message}`);
             return null;
         }
     }
 
     async levelUpCards(initData, totalCoins, axiosInstance) {
         if (!this.config.enableCardUpgrades) {
-            console.log("Card upgrade are disable in file config.");
+            console.log("Upgrade Card Disabled in config.json");
             return totalCoins;
         }
     
         let updatedTotalCoins = totalCoins;
         let leveledUp = false;
         let cooldownCards = new Set();
+        let errorCards = new Set();
     
         do {
             leveledUp = false;
             const cardInfo = await this.getCardInfo(initData, axiosInstance);
             if (!cardInfo) {
-                console.log("Failed to get card information. Cancel upgrade!");
+                console.log("Get Card infor error. Skip Card upgrade!");
                 break;
             }
     
             const sortedCards = cardInfo.sort((a, b) => b.nextProfitPerHour - a.nextProfitPerHour);
-    
+            const currentTime = Math.floor(Date.now() / 1000);
+            
             for (const card of sortedCards) {
-                if (cooldownCards.has(card.cardId)) {
+                if (cooldownCards.has(card.cardId) || errorCards.has(card.cardId)) {
+                    continue;
+                }
+    
+                if (card.end_datetime && currentTime > card.end_datetime) {
+                    this.log(`Card ${card.name} (${card.cardId}) Expired. Skip.`, 'warning');
+                    errorCards.add(card.cardId);
                     continue;
                 }
     
@@ -265,17 +279,25 @@ class Tsubasa {
                         if (levelUpResponse.status === 200) {
                             updatedTotalCoins -= card.cost;
                             leveledUp = true;
-                            this.log(`Upgrade Card ${card.name} (${card.cardId}) up level ${card.level + 1}. Cost: ${card.cost}, Balance còn: ${updatedTotalCoins}`);
-                            break;
+                            this.log(`Card Upgrade ${card.name} (${card.cardId}) to level ${card.level + 1}. Cost: ${card.cost}, Balance: ${updatedTotalCoins}`);
                         }
                     } catch (error) {
-                        if (error.response && error.response.status === 400 && error.response.data && error.response.data.message === 'Wait for cooldown') {
-                            this.log(`Cooldown time | Card ${card.name} (${card.cardId})`, 'warning');
-                            cooldownCards.add(card.cardId);
+                        if (error.response && error.response.status === 400) {
+                            if (error.response.data && error.response.data.message === 'Wait for cooldown') {
+                                this.log(`Card Upgrade Cooldown ${card.name} (${card.cardId})`, 'warning');
+                                cooldownCards.add(card.cardId);
+                            } else if (error.response.data && error.response.data.message === 'Expired') {
+                                this.log(`Error Card Upgrade ${card.name} (${card.cardId}): Card Expired`, 'warning');
+                                errorCards.add(card.cardId);
+                            } else {
+                                this.log(`Error Card Upgrade ${card.name} (${card.cardId}): ${error.response.data.message}`, 'error');
+                                errorCards.add(card.cardId);
+                            }
                         } else {
-                            console.log(error);
-                            this.log(`Card upgare error ${card.name} (${card.cardId}): ${error.message}`, 'error');
+                            this.log(`Error Card Upgrade ${card.name} (${card.cardId}): ${error.message}`, 'error');
+                            errorCards.add(card.cardId);
                         }
+                        continue;
                     }
                 }
             }
@@ -284,36 +306,213 @@ class Tsubasa {
         return updatedTotalCoins;
     }
 
+    async callTapAPI(initData, tapcount, axiosInstance) {
+        const tapUrl = "https://api.app.ton.tsubasa-rivals.com/api/tap";
+        const tapPayload = { tapCount: tapcount, initData: initData };
+        
+        try {
+            const tapResponse = await axiosInstance.post(tapUrl, tapPayload);
+            if (tapResponse.status === 200) {
+                const { total_coins, energy, max_energy, multi_tap_count, profit_per_second, energy_level, tap_level } = tapResponse.data.game_data.user;
+                return { total_coins, energy, max_energy, multi_tap_count, profit_per_second, energy_level, tap_level, success: true };
+            } else {
+                return { success: false, error: `Error tap: ${tapResponse.status}` };
+            }
+        } catch (error) {
+            return { success: false, error: `Error tap: ${error.message}` };
+        }
+    }
+
+    async callEnergyRecoveryAPI(initData, axiosInstance) {
+        const recoveryUrl = "https://api.app.ton.tsubasa-rivals.com/api/energy/recovery";
+        const recoveryPayload = { initData: initData };
+        
+        try {
+            const recoveryResponse = await axiosInstance.post(recoveryUrl, recoveryPayload);
+            if (recoveryResponse.status === 200) {
+                const { energy, max_energy } = recoveryResponse.data.game_data.user;
+                return { energy, max_energy, success: true };
+            } else {
+                return { success: false, error: `Re-fill Energy failed` };
+            }
+        } catch (error) {
+            return { success: false, error: `Re-fill Energy failed` };
+        }
+    }
+
+    async tapAndRecover(initData, axiosInstance) {
+        let continueProcess = true;
+        let totalTaps = 0;
+
+        while (continueProcess) {
+            const startResult = await this.callStartAPI(initData, axiosInstance);
+            if (!startResult.success) {
+                this.log(startResult.error, 'error');
+                break;
+            }
+
+            let currentEnergy = startResult.energy;
+            const maxEnergy = startResult.max_energy;
+            const tapcount = Math.floor(currentEnergy / startResult.multi_tap_count);
+            
+
+            while (currentEnergy > 0) {
+                const tapResult = await this.callTapAPI(initData, tapcount, axiosInstance);
+                if (!tapResult.success) {
+                    this.log(tapResult.error, 'error');
+                    continueProcess = false;
+                    break;
+                }
+
+                totalTaps += tapcount;
+                this.log(`Tap Success | Energy remain ${tapResult.energy}/${tapResult.max_energy} | Balance : ${tapResult.total_coins}`, 'success');
+                currentEnergy = 0;
+
+                const recoveryResult = await this.callEnergyRecoveryAPI(initData, axiosInstance);
+                if (!recoveryResult.success) {
+                    this.log(recoveryResult.error, 'warning');
+                    continueProcess = false;
+                    break;
+                }
+
+                if (recoveryResult.energy === maxEnergy) {
+                    currentEnergy = recoveryResult.energy;
+                    this.log(`Refill Energy Success | Energy Balance: ${currentEnergy}/${maxEnergy}`, 'success');
+                } else {
+                    this.log(`Refill Energy Failed | Energy Balance: ${recoveryResult.energy}/${maxEnergy}`, 'warning');
+                    continueProcess = false;
+                    break;
+                }
+            }
+        }
+
+        return totalTaps;
+    }
+
+    async callTapLevelUpAPI(initData, axiosInstance) {
+        const tapLevelUpUrl = "https://api.app.ton.tsubasa-rivals.com/api/tap/levelup";
+        const payload = { initData: initData };
+        
+        try {
+            const response = await axiosInstance.post(tapLevelUpUrl, payload);
+            if (response.status === 200) {
+                const { tap_level, tap_level_up_cost, multi_tap_count, total_coins } = response.data.game_data.user;
+                return { success: true, tap_level, tap_level_up_cost, multi_tap_count, total_coins };
+            } else {
+                return { success: false, error: `Error Upgrade tap: ${response.status}` };
+            }
+        } catch (error) {
+            return { success: false, error: `Error Upgrade tap: ${error.message}` };
+        }
+    }
+
+    async callEnergyLevelUpAPI(initData, axiosInstance) {
+        const energyLevelUpUrl = "https://api.app.ton.tsubasa-rivals.com/api/energy/levelup";
+        const payload = { initData: initData };
+        
+        try {
+            const response = await axiosInstance.post(energyLevelUpUrl, payload);
+            if (response.status === 200) {
+                const { energy_level, energy_level_up_cost, max_energy, total_coins } = response.data.game_data.user;
+                return { success: true, energy_level, energy_level_up_cost, max_energy, total_coins };
+            } else {
+                return { success: false, error: `Error Upgrade energy: ${response.status}` };
+            }
+        } catch (error) {
+            return { success: false, error: `Error Upgrade energy: ${error.message}` };
+        }
+    }
+
+    async upgradeGameStats(initData, axiosInstance) {
+        const tapResult = await this.callTapAPI(initData, 1, axiosInstance);
+        if (!tapResult.success) {
+            this.log(tapResult.error, 'error');
+            return;
+        }
+
+        const requiredProps = ['total_coins', 'energy', 'max_energy', 'multi_tap_count', 'profit_per_second', 'tap_level', 'energy_level'];
+        const missingProps = requiredProps.filter(prop => tapResult[prop] === undefined);
+        if (missingProps.length > 0) {
+            this.log(`Missing required properties: ${missingProps.join(', ')}`, 'error');
+            return;
+        }
+    
+        let { 
+            total_coins, 
+            energy,
+            max_energy,
+            multi_tap_count,
+            profit_per_second,
+            tap_level,
+            energy_level
+        } = tapResult;
+    
+        let tap_level_up_cost = this.calculateTapLevelUpCost(tap_level);
+        let energy_level_up_cost = this.calculateEnergyLevelUpCost(energy_level);
+    
+        if (this.config.enableTapUpgrades) {
+            while (tap_level < this.config.maxTapUpgradeLevel && total_coins >= tap_level_up_cost && tap_level_up_cost <= this.config.maxUpgradeCost) {
+                const tapUpgradeResult = await this.callTapLevelUpAPI(initData, axiosInstance);
+                if (tapUpgradeResult.success) {
+                    tap_level = tapUpgradeResult.tap_level;
+                    total_coins = tapUpgradeResult.total_coins;
+                    multi_tap_count = tapUpgradeResult.multi_tap_count;
+                    tap_level_up_cost = this.calculateTapLevelUpCost(tap_level);
+                    this.log(`Upgrade Tap Success | Level: ${tap_level} | Cost: ${tap_level_up_cost} | Balance: ${total_coins}`, 'success');
+                } else {
+                    this.log(tapUpgradeResult.error, 'error');
+                    break;
+                }
+            }
+        }
+    
+        if (this.config.enableEnergyUpgrades) {
+            while (energy_level < this.config.maxEnergyUpgradeLevel && total_coins >= energy_level_up_cost && energy_level_up_cost <= this.config.maxUpgradeCost) {
+                const energyUpgradeResult = await this.callEnergyLevelUpAPI(initData, axiosInstance);
+                if (energyUpgradeResult.success) {
+                    energy_level = energyUpgradeResult.energy_level;
+                    total_coins = energyUpgradeResult.total_coins;
+                    max_energy = energyUpgradeResult.max_energy;
+                    energy_level_up_cost = this.calculateEnergyLevelUpCost(energy_level);
+                    this.log(`Upgrade Energy Success | Level: ${energy_level} | Cost: ${energy_level_up_cost} | Balance: ${total_coins}`, 'success');
+                } else {
+                    this.log(energyUpgradeResult.error, 'error');
+                    break;
+                }
+            }
+        }
+    }
+    
+    calculateTapLevelUpCost(currentLevel) {
+        return 1000 * currentLevel;
+    }
+    
+    calculateEnergyLevelUpCost(currentLevel) {
+        return 1000 * currentLevel;
+    }
+
     async main() {
-        const dataFile = path.join(__dirname, 'data.txt');
-        const data = fs.readFileSync(dataFile, 'utf8')
-            .replace(/\r/g, '')
-            .split('\n')
-            .filter(Boolean);
-
-        let lastUpgradeTime = 0;
-
         while (true) {
-            for (let i = 0; i < data.length; i++) {
-                const initData = data[i];
+            for (let i = 0; i < this.data.length; i++) {
+                const initData = this.data[i];
+                const userId = JSON.parse(decodeURIComponent(initData.split('user=')[1].split('&')[0])).id;
                 const firstName = JSON.parse(decodeURIComponent(initData.split('user=')[1].split('&')[0])).first_name;
-                const proxy = this.proxies[i] || '';
-
-                let proxyIP = 'N/A';
+                
+                const proxy = this.proxies[i];
+                let proxyIP = 'Unknown';
                 try {
-                    if (proxy) {
-                        proxyIP = await this.checkProxyIP(proxy);
-                    }
+                    proxyIP = await this.checkProxyIP(proxy);
                 } catch (error) {
-                    this.log(`Lỗi kiểm tra IP proxy: ${error.message}`, 'warning');
-                    continue;
+                    this.log(`Error check proxy IP for account ${i + 1}: ${error.message}`, 'warning');
                 }
                 
-                this.log(`========== Tài khoản ${i + 1} | ${firstName} | ip: ${proxyIP} ==========`, 'custom');
+                this.log(`========== Account ${i + 1} | ${firstName} | ip: ${proxyIP} ==========`, 'custom');
+
+                this.headers["X-Player-Id"] = userId.toString();
 
                 const axiosInstance = axios.create({
-                    httpsAgent: proxy ? new HttpsProxyAgent(proxy) : undefined,
-                    headers: this.headers
+                    headers: this.headers,
+                    httpsAgent: new HttpsProxyAgent(proxy)
                 });
 
                 try {
@@ -322,8 +521,8 @@ class Tsubasa {
                         if (startResult.total_coins !== undefined) {
                             this.log(`Balance: ${startResult.total_coins}`);
                             this.log(`Energy: ${startResult.energy}/${startResult.max_energy}`);
-                            this.log(`Coins per tap: ${startResult.coins_per_tap}`);
-                            this.log(`Profit/second: ${startResult.profit_per_second}`);
+                            this.log(`Tap count: ${startResult.multi_tap_count}`);
+                            this.log(`Profit per second: ${startResult.profit_per_second}`);
                         }
 
                         if (startResult.tasks && startResult.tasks.length > 0) {
@@ -332,38 +531,35 @@ class Tsubasa {
                                 if (executeResult) {
                                     const achievementResult = await this.checkTaskAchievement(initData, task.id, axiosInstance);
                                     if (achievementResult.success) {
-                                        this.log(`Task ${achievementResult.title} Success | Reward ${achievementResult.reward}`, 'success');
+                                        this.log(`Perform Task ${achievementResult.title} Success | Reward ${achievementResult.reward}`, 'success');
                                     }
                                 }
                             }
                         } else {
-                            this.log(`All task completed.`, 'warning');
+                            this.log(`No task available.`, 'warning');
                         }
 
-                        if (startResult.energy !== undefined) {
-                            const tapResult = await this.callTapAPI(initData, startResult.energy, axiosInstance);
-                            if (tapResult.success) {
-                                this.log(`Tap success | Energy remain ${tapResult.energy}/${tapResult.max_energy} | Balance : ${tapResult.total_coins}`, 'success');
-                            } else {
-                                this.log(tapResult.error, 'error');
-                            }
-                        }
+                        const totalTaps = await this.tapAndRecover(initData, axiosInstance);
+                        this.log(`Total Tap: ${totalTaps}`, 'success');
 
                         const dailyRewardResult = await this.callDailyRewardAPI(initData, axiosInstance);
                         this.log(dailyRewardResult.message, dailyRewardResult.success ? 'success' : 'warning');
+
                         const updatedTotalCoins = await this.levelUpCards(initData, startResult.total_coins, axiosInstance);
-                        this.log(`Upgrade all card with setup condition | Balance: ${updatedTotalCoins}`, 'success');
+                        this.log(`All eligible cards have been upgraded. | Balance: ${updatedTotalCoins}`, 'success');
+
+                        await this.upgradeGameStats(initData, axiosInstance);
                     } else {
                         this.log(startResult.error, 'error');
                     }
                 } catch (error) {
-                    this.log(`Account process failed ${i + 1}: ${error.message}`, 'error');
+                    this.log(`Error processing account ${i + 1}: ${error.message}`, 'error');
                 }
 
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
 
-            await this.countdown(60);
+            await this.countdown(120);
         }
     }
 }
